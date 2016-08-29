@@ -1,0 +1,782 @@
+---
+title: Geolocation analysis with Open Source Tools 2016 North American Ornithological Congress, Washington D.C.
+output: 
+ html_document:
+    theme: "journal"
+    toc: true
+    toc_float: true
+    fig.legend: true
+---
+
+**Sponsored by:**  
+
+ *Migrate Technology LLC.-- <a href="www.migratetech.co.uk">www.migratetech.co.uk</a>*    
+ 
+ *The Cooper Ornithological Society*    
+ 
+ *The National Science Foundation*
+ 
+<img src="Markdown/MT_logo.gif" width = 300/> <img src="Markdown/COS.png" width=200/> <img src="Markdown/NSF.gif" width=200/>
+
+***
+The following document outlines the steps for analyzing data from archival light-level geolocators (hereafter geolocators). Geolocators have been used to track individuals since the early 1990s but were restricted to large organisms because of their large size. Recently, with the miniturization of geolocators, researchers are now able to deploy geolocators on smaller and smaller species. Geolocators are devices that record ambient light levels every 2, 5, or 10 min depending on the model. The devices are attached to individuals which then migrate with the tag while it records ambient light-levels throughout the year. Once recovered, the data are downloaded and analyzed to determine twilight events (sunrise or sunset). See figure below created by Eli Bridge. Approximate geographic locations are then derived using the twilight events. 
+
+<img src="Markdown/Bridge_Figure.gif" width=800 />
+
+
+The code provided below was complied for the Geolocation analysis with Open Source Tools workshop at the North American Ornithological Congress meeting in Washington D.C.
+
+Getting started 
+---------------
+
+In order to analyze light-level geolocator data in R you need a few packages. The workflow described below covers three popular open-source tools to analyze the light-level data. This document covers the how to analyze the data in `GeoLight`, `SGAT` and `FLightR` packages. 
+
+### Loading required packages
+Be sure to acquire all required packages prior to running this analysis. See the <a href="https://github.com/Eli-S-Bridge/NAOC_Geos_2016/blob/master/GetPackages.R">GetPackages.R script</a>  to download all required packages if you haven't done so already. 
+
+```{r eval = FALSE}
+# Check to make sure the required packages are installed on your machine
+# If not, they will be installed
+
+reqPackages <- c("devtools","digest","GeoLight","geosphere","raster","fields","forecast",
+                  "circular","truncnorm","parallel","bit","rgdal","CircStats","Rcpp",
+                  "RcppArmadillo","ggmap","ggsn","sp","maptools","rgeos","MASS")
+
+
+get.packages <- reqPackages[!(reqPackages %in% installed.packages()[,"Package"])]
+
+if(length(get.packages)>0){
+  install.packages(get.packages,repos = "https://cloud.r-project.org/", dependencies = TRUE)
+}
+
+# Install necessary packages from Github using the devtools library #
+
+library(devtools)
+install_github("SWotherspoon/SGAT")
+install_github("SLisovski/TwGeos") 
+install_github("SLisovski/GeoLight", ref = "Update_2.01", force = T)
+install_github("eldarrak/FLightR")
+```
+
+```{r eval = FALSE}
+library(GeoLight)
+library(TwGeos)
+library(SGAT)
+library(FLightR)
+library(MASS)  #needed for fitting distributions
+library(maptools)
+```
+
+Which package should I use?
+---
+
+***
+> Some really informative text here in the future
+>
+>if GeoLight - go to this portion of the markdown
+>if SGAT - go to this portion of markdown
+>if FLightR - go to this portion of markdown
+***
+
+
+Getting data into R 
+-------------------
+There are a few functions to read light-level data into R. The type of file that you have will determine which function you use. If you have `.lig` from British Antarctic Survey or BioTrack you use the `readLig` found in the `TwGeos` package. 
+```{r echo=FALSE, warning = FALSE, error=FALSE, message = FALSE}
+library(SGAT,lib.loc="C:/Users/hallworthm/Google_Drive/Hallworth_R_Library")
+```
+```{r}
+#load the TwGeos package
+library("TwGeos")                                 
+
+#read the data into a dataframe called d.lig
+d.lig <- readLig("data/749_000.lig", skip = 0)
+
+#reduce the dataframe to just Date and Light
+d.lig <- subset(d.lig,select=c("Date","Light"))   
+```
+
+Here are what the first few rows of data look like and the structure of the data. 
+
+```{r echo=FALSE}
+head(d.lig)
+str(d.lig)
+```
+
+If you have a `.lux` file from Migrate Technology then you would use the `readMTlux` function which is also part of the `TwGeos` package.
+
+```{r}
+#read the data into a dataframe called d.lux
+d.lux<-readMTlux("data/A2_raw_data.lux")     
+```
+```{r echo=FALSE}
+head(d.lux)
+str(d.lux)
+```
+
+Notice the difference in the `Light` measurement between the two types of tags. 
+
+Let's plot the light data using the function called `lightImage`. This figure allows you to look at the light data throughout the period when the tag collected data. The light areas indicate ambient light-levels during the day while dark shades represent night. You may notice notice dark areas either in the beginning of the logging period and the end of the logging period where there are dark values during the day. These are likely times after the logger was started but before it was deployed or after it was recovered but before the data were downloaded. 
+
+```{r}
+lightImage( tagdata = d.lig, # light data
+            offset = 18,     # adjusts the y-axis to put night (dark shades) in the middle
+            zlim = c(0, 64), # y axis
+            dt = 120)        # miniumn dark period
+```
+
+***
+
+Defining Twilights / Transitions / Sunrise Sunset times 
+-----
+There are a few options for how to define / edit twilights. 
+
+`twilightCalc` is one function that allows transitions to be defined and is part of the `GeoLight` package. Another function is called `preprocessLight`. Both require a threshold be specified to define the transition events. The threshold is the light value that seperates day from night - values above the threshold indicate the sun has risen and values below the threshold value indicate the sun has set. 
+
+***
+>How do I know which thresold to use? 
+>
+> You should choose the lowest value that is consistently above any noise in the nighttime light levels. For many .lig data sets 2.5 is above any nighttime noise. For forest interior, ground dwelling species a lower threshold may be helpful - especially if there isn't much 'noise' during the night. A threshold of 1 may be appropriate for such species. 
+>
+
+```{r}
+threshold <- 2.5
+```
+
+`preprocessLight` is an interactive function for editing light data and deriving twilights. Note: if you are working on a Mac set gr.Device to X11 and install Quartz first (https://www.xquartz.org). Instructions of how to complete the interactive process can be found by running the following code. 
+
+```{r echo=FALSE, warning=FALSE}
+library(SGAT,lib.loc="C:/Users/hallworthm/Google_Drive/Hallworth_R_Library")
+```
+```{r eval = FALSE}
+library(SGAT)
+?preproccessLight()
+
+```
+
+The following code will start the interactive process. 
+
+```{r eval = FALSE}
+# For PC 
+twl <- preprocessLight(tagdata = d.lig,
+                       threshold = threshold,
+                       offset = 18, 
+                       lmax = 12, 
+                       gr.Device = "default")
+
+## for mac
+twl <- preprocessLight(tagdata= d.lig, 
+                       threshold = threshold, 
+                       offset = 18, 
+                       lmax = 12, 
+                       gr.Device = "x11")
+```
+
+Another way to find the twilights without using the interactive process is the `findTwilights` function in the `TwGeos` package. The `findTwilights` function in finds the twiligtht times without individual insepction and without editing. First we need to know one date and time when it is night within the dataset. This date and time where you know it's night is called the `seed`. You can specify the `seed` in `as.POSIXct` format or you can specify the seed date by clicking on the light image. Use `?findTwilights()` to see the help file. 
+
+
+specify `seed` manually 
+
+```{r}
+seed <- as.POSIXct("2011-11-01 04:00", origin  = "1970-01-01", tz = "GMT")
+
+twl  <- findTwilights(tagdata = d.lig, 
+                      threshold = threshold, 
+                      include = seed,
+                      dark.min = 0) # minimum dark period in minutes
+```
+
+Use a figure of the light-levels to specify the `seed`
+
+```{r eval = FALSE}
+# Plot the data 
+plot(d.lig$Date[3000:5000], d.lig$Light[3000:5000], type = "o", pch = 16, cex = 0.5)
+
+seed <- as.POSIXct(locator(n=1)$x, origin  = "1970-01-01", tz = "GMT") # click at any time during the night
+
+twl  <- findTwilights(tagdata = d.lig, 
+                      threshold = threshold, 
+                      include = seed)
+```
+
+After you have defined the twilight periods this is what the `twl` object should look like. If the `twl` object is empty check the following things: 1) If you used `locator()` function make sure you clicked on a date within the time frame that you may have subsetted above. 2) Double check that the light levels fall below the threshold level. 
+
+```{r echo=FALSE}
+head(twl)
+str(twl)
+```
+
+Here is an image that shows the twilights overlaid on the light image. 
+```{r}
+lightImage(tagdata = d.lig, 
+           offset = 18, 
+           zlim = c(0, 12),
+           dt = 120)
+tsimagePoints(twl$Twilight, 
+              offset = 12, 
+              pch = 16, 
+              cex = 0.5,
+              col = ifelse(twl$Rise, "dodgerblue", "firebrick"))
+```
+
+Removing/Fixing Twilight Outliers 
+------
+The function twilightEdit may help to find outliers and either remove or edit them according to one rule:
+
+rule: if a twilight time is `outlier.mins` (e.g. 45) minutes different to its surrounding twilight times, defined by `window` - the number of surrounding twilight times (e.g. 4), and the surrounding twiligth times are within `stationary.mins` (e.g. 15) minutes, the outlayer will be moved in between the two neighboring twilights or deleted if the sourrounding twilights are > `stationary.mins`.
+
+The following code is fast and easily reproducible definition to edit outlier twilight times. 
+```{r}
+twl <- twilightEdit(twilights = twl, 
+                    window = 4,           # two days before and two days after
+                    outlier.mins = 45,    # difference in mins
+                    stationary.mins = 25, # are the other surrounding twilights within 25 mins of one another
+                    plot = TRUE)
+
+```
+
+Here is an image with the twilight outliers either adjusted or removed. 
+
+```{r echo = FALSE}
+## Plot the edited data on ligthImage
+lightImage(d.lig, offset = 18, zlim = c(0, 12), dt = 120)
+tsimagePoints(twl$Twilight, offset = 18, pch = 16, cex = 0.5,
+              col = ifelse(twl$Rise, "dodgerblue", "firebrick"))
+```
+
+BAS or Biotrack tags record the maximum light value measured within a given time interval, in our example data set it records the maximum light level every two mins. You can double check the time interval by looking at the `.lig` file. Because of this we need to adjust the twilight time by half the sampling period. 
+
+```{r}
+# Check the sampling interval of the geolocator
+head(d.lig)
+```
+
+If you're not convinced you can look at the difference between two consecutive light level readings
+```{r}
+d.lig$Date[3]-d.lig$Date[2]
+```
+
+Here we adjust the twilight time back to account for the maximum light level readings every 2 mins. 
+```{r}
+twl <- twilightAdjust(twilights = twl, 
+                      interval = 60) # The unit here is seconds
+```
+
+Let's truncate the data to include only the dates when we know the tag was on the bird. 
+
+```{r}
+On_Bird <- as.POSIXct(c("2011-06-26", "2012-05-11"), tz = "GMT")
+``` 
+
+The orange lines represent the time period when the geolocator was on the bird. We will proceed with the analysis using the data when the tag was recording data on bird. 
+```{r}
+lightImage(d.lig, offset = 19)
+tsimagePoints(twl$Twilight, offset = 19, pch = 16, cex = 0.5,
+              col = ifelse(twl$Rise, "dodgerblue", "firebrick"))
+
+## Let's truncate the data using point and click
+# trnc <- as.POSIXct(locator(n=2)$x, origin = "1970-01-01", tz = "GMT")
+
+abline(v  = On_Bird, col  ="orange", lwd = 3)
+```
+
+You could also specify the dates when the tag was on the bird by using the `locator()` function and clicking on the light image to specify the dates. 
+
+```{r eval = FALSE}
+lightImage(d.lig, offset = 19)
+tsimagePoints(twl$Twilight, offset = 19, pch = 16, cex = 0.5,
+              col = ifelse(twl$Rise, "dodgerblue", "firebrick"))
+
+On_Bird <- as.POSIXct(locator(n=2)$x, origin = "1970-01-01", tz = "GMT")
+```
+
+The following code subsets the twilight data to include only those data between the capture dates.
+
+```{r}
+twl <- twl[twl$Twilight > On_Bird[1] & twl$Twilight < On_Bird[2],]
+```
+
+
+Calibration
+--------
+Calibration is important to 1) understand where the sun is with respect to the horizon (sun-elevation angle) or with respect to the vertical (zenith angle) and 2) identify the error distribution around when the tag indicates a twilight event occurred and the actual twilight event at a known location. These two pieces of information are very important for using light-level geolocation to track migratory animals. 
+
+***
+>### Why is the sun-elevation angle / Zenith angle important? 
+>
+> The sun-elevation angle / zenith angle is needed to determine the geographic location based on light-levels. As the animal migrates the time of sun-rise / sun-set will change corresponding to the local light-levels the individual is experiencing. We then use the sun-elevation angle along with the corresponding threshold level to determine where the bird must have been to exhibit twilight times associtated with the light-levels recorded by the geolocator. 
+>
+
+***
+> ### What affects the sun-elevation / zenith angle and how does that influence locations?
+>
+> A lot of factors can influence the sun-elevation angle. Weather, the animals behavior, habitat, and topography can all influence the sun-elevation / zenith angle. Picture the following senario. Let's assume you place a tag on a bird on the eastern slope of a mountain range in a forested habitat. You use your calibration data to estimate the sun-elevation / zenith angle and find that the angle suggests that the twilight times represent the time when the sun is 3 degrees below the horizon (sun-elevation angle = -3, Zenith angle = -93). Now let's assume the bird begins to migrate and crosses over the mountains to a westerly facing slope. Now the horizon is obstructed by the mountains and because of this the sun needs to be above the horizon by 1 degree for the light levels to cross the threshold. The sun elevation angle / zenith angle has changed but in our analysis we assume the sun is 3 degrees below the horizon when the light levels cross the threshold. 
+>
+> ***What happens to the estimated position of the bird relative to the 'true' position if we use -3 vs. 1 for a sun-elevation / zenith angle? Why?***
+
+Capture location 
+---------------
+We need to create an object to store the capture location. 
+
+```{r}
+# Calibration Coordinates
+CapLocs <- cbind(-80.46,42.62) # Longitude, latitude
+```
+
+Now that we have the capture location stored we need to subset the twilight object (`twl`) we created earlier to include only dates when the animal was at the capture location. You can do this several ways. First, you can use personal observations (i.e., field work ended 1 August and the bird was still on territory) or the biology of the bird (i.e., stationary period ends when nestlings hatch around June 1). The alternative is to use the the light-level information direclty off the geolocator to determine when the animal was at the capture location. In order to use the second approach we need to know what the actual twilight events are and how they match up to the observed twilights derived from the geolocator data. 
+
+
+```{r}
+  Times <- seq(from = d.lig$Date[1], 
+                 to = d.lig$Date[length(d.lig$Date)], 
+                 by = "day")
+  
+  rise <- rep(c(TRUE, FALSE), length(Times))
+
+
+# making predicted twilight times given location and zenith #
+
+  KnownTwl <- data.frame(Twilight = twilight(rep(Times, each = 2),
+                                                 lon = CapLocs[1], 
+                                                 lat = CapLocs[2], 
+                                                 rise = rise, zenith = 94),
+                         Rise = rise) 
+
+```
+Once we have the known twilight times from the capture location you can plot the light data from the geolocator (`d.lig`) and overlay the known twilight times from the capture location. The sun rise at the known location is shown in blue and the sunset is shown in red. When the light data from the tag corresponds with the known twilights at the capture location the animal was likely stationary at/around the capture site. When the measured light levels deviate from the known twilights the bird was somewhere else. You can use the `locator()` function to click on the image to determine dates, or you can create an R object that specifies the dates.
+
+```{r}
+  lightImage(d.lig,
+             offset = 19, 
+             zlim = c(0,64), 
+             main = "Light Image") 
+  
+  tsimagePoints(KnownTwl$Twilight, 
+                offset = 19, 
+                pch = 16, cex = 0.5, 
+                col = ifelse(KnownTwl$Rise, "blue", "red"))
+  
+  # adds line at two equinoxes for reference. Change the dates if necessary (can vary by year) #
+  eqnx<-as.POSIXct(c("2011-09-23", "2012-03-20"), tz = "GMT") 
+  abline(v = eqnx, lwd=3, lty=3, col="purple")
+```
+
+From the image above it looks like the measured and known twilights correspond when until sometime in July. Here, we'll use all the data until July 15, 2011 for the calibration period. 
+
+```{r}
+calibrationPeriod <- subset(twl, Twilight < as.POSIXct("2011-07-15", "GMT"))
+```
+
+```{r echo = FALSE, message = FALSE}
+library(MASS)
+```
+
+Sun-elevation / Zenith
+---------------------
+
+Determining the sun elevation angle - here called the Zenith angle
+
+```{r}
+  # Calculate solar time from calibration data 
+  sun <- solar(calibrationPeriod[,1])
+  
+  # Adjust the solar zenith angle for atmospheric refraction
+  zenithAngle <- refracted( zenith(sun = sun,
+                                   lon = CapLocs[1], 
+                                   lat = CapLocs[2]))
+  
+  twilight_time <- twilight(tm = calibrationPeriod[,1],
+                          lon = CapLocs[1], 
+                          lat = CapLocs[2], 
+                          rise = calibrationPeriod[,2],
+                          # Here we use the median zenith angle
+                          zenith = quantile(zenithAngle,probs=0.5))
+  
+  # Determine the difference in minutes from when the sun rose and the geolocator said it rose 
+  twl_deviation <- ifelse(calibrationPeriod$Rise, 
+                          as.numeric(difftime(calibrationPeriod[,1], twilight_time, units = "mins")),
+                          as.numeric(difftime(twilight_time, calibrationPeriod[,1], units = "mins")))
+  
+  # Describe the distribution of the error 
+  twl.dist <- fitdistr(abs(twl_deviation), "log-Normal")
+  
+  # save the Twilight model parameters
+  alpha <- c(twl.dist$estimate[1], twl.dist$estimate[2]) 
+
+# Make some plots to visualize the data 
+par(mfrow=c(1,2))  
+hist(abs(twl_deviation), freq = F,
+     yaxt="n",
+     xlim = c(0, 60),
+     breaks=10,
+     col="gray",
+     main = "",
+     xlab = "Twilight error (mins)")
+axis(2,las=2)
+  lines(seq(0,60, length = 100),
+        dlnorm(seq(0,60, length = 100), alpha[1], alpha[2]), col ="red",lwd = 3, lty = 2)
+
+#Zenith angle plot
+par(bty="l")
+plot(median(zenithAngle,na.rm=TRUE),ylim = c(80,120),pch=19,cex=1.25,ylab="Zenith Angle")
+segments(1,quantile(zenithAngle,probs=0.025),1,quantile(zenithAngle,probs=0.975))
+points(1,max(zenithAngle,na.rm=TRUE),col="red",pch=20)
+```
+
+Here we assign the zenith that we will use in the analyses. If using a simple threshold approach (`GeoLight`) the median zenithAngle is probably good enough. 
+
+```{r}
+Zenith <- quantile(zenithAngle, probs = 0.95)
+```
+
+Inital Path
+-----------
+Now that we have the error distribution around known sunrise and sunset times and the zenith angle we can look at the location data. First, we will subset the data to only show transitions that 1) were after the first calibrartion date (presumably the deployment date) and 2) were not deleted above   
+
+We didn’t add or delete any transitions but this statement would remove the twilights that were deleted above had edits been made.
+
+Here we generate the first general path taken by each individual.
+
+**Important** - the tol setting in the `thresholdPath` model sets the tolerance around equinox (i.e. filter out those points). Latitudinal estimates are unrelibale around the equinox periods because the change in day length is similar everywhere. `tol` values = 0 indicates save all points - larger tol values (0.2) filter out quite a few points. For this example, I set the tolerance to 0 (not the default) so I can look at all the data - even around equinox periods.
+
+```{r, message = FALSE, error = FALSE}
+  library(maptools)
+  data("wrld_simpl")
+
+InitialPath <- thresholdPath(twilight = twl$Twilight,
+                             rise = twl$Rise,
+                             zenith = Zenith,
+                             tol = 0)
+
+year<-c("2011-01-01","2012-01-01")
+
+  layout(matrix(c(1,3,
+                  2,3), 2, 2, byrow = TRUE))
+  
+  par(mar=c(2,4,2,0))
+  
+  plot(InitialPath$time, InitialPath$x[, 2], 
+       type = "b", 
+       pch = 16, 
+       cex = 0.5, 
+       ylab = "Latitude", 
+       xlab = '', 
+       xaxt="n",
+       col=ifelse(InitialPath$time<as.POSIXct(year[2],format="%Y-%m-%d"),"blue","green"))
+  
+  abline(h = CapLocs[2])
+  abline(v = as.POSIXct("2011-09-23"),col="red",lty=2,lwd=1.5)
+  abline(v = as.POSIXct("2012-03-21"),col="red",lty=2,lwd=1.5)
+  
+  par(mar=c(2,4,2,0))
+  plot(InitialPath$time, InitialPath$x[, 1],
+       type = "b",
+       pch = 16,
+       cex = 0.5,
+       ylab = "Longitude",
+       xlab = '',
+       col=ifelse(InitialPath$time<as.POSIXct(year[2],format="%Y-%m-%d"),"blue","green"))
+  
+  abline(h = CapLocs[1])
+  abline(v = as.POSIXct("2011-09-23"),col="red",lty=2,lwd=1.5)
+  abline(v = as.POSIXct("2012-03-20"),col="red",lty=2,lwd=1.5)
+  
+  
+  plot(wrld_simpl,
+       col = "grey95",
+       xlim = c(-120,-60),
+       ylim=c(0,40))
+ box(which="plot")
+  lines(InitialPath$x,
+        col = ifelse(InitialPath$time<as.POSIXct(year[2],format="%Y-%m-%d"),"blue","green"))
+  
+  points(InitialPath$x, 
+         pch = 16, 
+         cex = 0.5, 
+         col=ifelse(InitialPath$time<as.POSIXct(year[2],format="%Y-%m-%d"),"blue","green"))
+  points(CapLocs[1],CapLocs[2],pch=19,cex=2)
+```
+
+
+Creating a path
+----------------
+
+We can now use this initial path to initialize the analysis done using Markov Chain Monte Carlo model. This model will sample the data, while incorporating error to predict the path. However, we need to give it some starting values. In this first example we will restrict the path to fall only on land.
+
+The workflow for creating the final path is:    
+
+1. Give the model an inital path - just created above    
+1. define the mid-points between locations (needed to generate path)     
+1. define a flight distance parameter - this restrict really long - unlikely flights. (likelihood a bird will fly x distance based on flight speed)  
+1. run model multiple times until model converges and throw out the first interations as burn-in  
+1. refine the model further from previous runs   
+1. create the final path
+
+Here, we define the initial path (x0) from our results above (the mapped route).
+
+### Initialize Estella model
+
+```{r echo=FALSE}
+### Initialize Estella model
+
+  # Take the location estimates created above
+  x0 <- InitialPath$x
+  
+  # the model also needs the mid-points - generate those here
+  z0 <- trackMidpts(x0)
+
+  # Flight model
+beta <- c(0.7, 0.08)
+
+  # Specify the dates when locations are fixed # 
+
+fixedx <- rep(FALSE, nrow(x0))
+  
+fixedx[c(1:10,(nrow(x0)-3):nrow(x0))] <- TRUE
+  
+  x0[fixedx, 1] <- CapLocs[1]
+  x0[fixedx, 2] <- CapLocs[2]
+  
+  z0 <- trackMidpts(x0) # update z0 positions
+```
+
+### Restrict path to land
+
+You can restrict the path to locations on land - birds are still able to fly over water but have stationary locations on land. This makes sense for a terrestrial bird like warblers. It may not for other species, as always, consider the ecology of the species when conducting the analysis. Here, we will restrict the paths to the `wrld_simpl`.
+
+We include a prior distribution so only locations on land within the Americas are used. We first create a function to covert the `Americas` shapefile to a binary surface.
+
+```{r}
+## Function to construct a land/sea mask
+distribution.mask <- function(xlim, ylim, n = 4, land = TRUE, shape) {
+  r <- raster(nrows = n * diff(ylim), ncols = n * diff(xlim), xmn = xlim[1], 
+              xmx = xlim[2], ymn = ylim[1], ymx = ylim[2], crs = proj4string(shape))
+  r <- cover(rasterize(shape, shift = c(-360, 0), r, 1, silent = TRUE), 
+             rasterize(shape, r, 1, silent = TRUE), rasterize(shape, r, 1, silent = TRUE))
+  r <- as.matrix(is.na(r))[nrow(r):1, ]
+  if (land) 
+    r <- !r
+  xbin <- seq(xlim[1], xlim[2], length = ncol(r) + 1)
+  ybin <- seq(ylim[1], ylim[2], length = nrow(r) + 1)
+  
+  function(p) {
+    r[cbind(.bincode(p[, 2], ybin), .bincode(p[, 1], xbin))]
+  }
+}
+
+WGS84<-"+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+xlim=c(-120,-60)
+ylim=c(0,70)
+
+## Define mask for Ovenbird distribution
+is.dist <- distribution.mask(shape=wrld_simpl,
+                             xlim = xlim,
+                             ylim = ylim,
+                             n = 4,
+                             land = TRUE)
+
+# Define the log prior for x and z
+log.prior <- function(p) {
+  f <- is.dist(p)
+  ifelse(f | is.na(f), 0, -10)
+}
+
+
+# Define the threshold model - slimilar to above #
+
+model <- thresholdModel(twilight = twl$Twilight,
+                        rise = twl$Rise,
+                        twilight.model = "ModifiedLogNormal",
+                        alpha = alpha,
+                        beta = beta,
+                        # Here is where we set the constraints for land
+                        logp.x = log.prior, logp.z = log.prior, 
+                        x0 = x0,
+                        z0 = z0,
+                        zenith = Zenith,
+                        fixedx = fixedx)
+
+
+# This defines the error distribution around each location #
+
+  proposal.x <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(x0))
+  proposal.z <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(z0))
+
+  fit <- estelleMetropolis(model = model,
+                           proposal.x = proposal.x,
+                           proposal.z = proposal.z,
+                           iters = 1000, # This value sets the number of iterations to run
+                           thin = 10,
+                           chains = 1)
+
+### Fine Tuning 
+
+proposal.x <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(chainLast(fit$x)))
+proposal.z <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(chainLast(fit$z)))
+
+fit <- estelleMetropolis(model = model,
+                              proposal.x = proposal.x,
+                              proposal.z = proposal.z,
+                              x0 = chainLast(fit$x),
+                              z0 = chainLast(fit$z),
+                              iters=1000, # This value sets the number of iterations to run
+                              thin=10,
+                              chains=1)
+
+# Final Run
+
+proposal.x <- mvnorm(chainCov(fit$x),s=0.1)
+proposal.z <- mvnorm(chainCov(fit$z),s=0.1)
+
+# Note the increase in number of interations - this takes a bit longer to run
+fit  <- estelleMetropolis(model = model,
+                              proposal.x = proposal.x,
+                              proposal.z = proposal.z,
+                              x0=chainLast(fit$x),
+                              z0=chainLast(fit$z),
+                              iters=5000,  # This value sets the number of iterations to run
+                              thin=10,
+                              chains=3)
+```
+
+## Inital results 
+
+```{r}
+# This step makes an empty raster #
+r <- raster(nrows=4*diff(ylim), # this sets the spatial resolution 
+            ncols=4*diff(xlim), # ditto
+            xmn=xlim[1],
+            xmx=xlim[2],
+            ymn=ylim[1],
+            ymx=ylim[2])
+
+  S <- slices(type="intermediate",
+                   breaks="day",
+                   mcmc=fit,
+                   grid=r)
+  
+  DATES <- S$mcmc[[1]]$time[ which( S$mcmc[[1]]$rise==TRUE) ]
+  
+  ReleaseDay <- 1
+  Aug01 <- which(strptime(DATES, format = "%Y-%m-%d", tz = "GMT")==as.POSIXct("2011-08-01",format="%Y-%m-%d",tz="GMT"))
+  Jan01 <- which(strptime(DATES, format = "%Y-%m-%d", tz = "GMT")==as.POSIXct("2012-01-01",format="%Y-%m-%d",tz="GMT"))
+  Mar01 <- which(strptime(DATES, format = "%Y-%m-%d", tz = "GMT")==as.POSIXct("2012-03-01",format="%Y-%m-%d",tz="GMT"))
+
+  # Breeding 
+  # Get time when on the breeding grounds 
+  tm <-sliceInterval(S,k=c(ReleaseDay:Aug01))
+  
+  
+  # "Slice" the data and save all dates between Release date and August 1 2011.
+  breed <-slice(S,k=c(ReleaseDay:Aug01))
+  nonbreed <- slice(S, k=c(Jan01:Mar01))
+  
+  plot(wrld_simpl, 
+       xlim = c(-96, -72),
+       ylim = c(23,47),
+       border = "gray",
+       col = "gray88")
+  
+  plot(breed,useRaster=TRUE,
+       axes=FALSE, 
+        add=TRUE,
+       legend=FALSE,
+       col=c("transparent",rev(bpy.colors(50))),
+       cex.axis=0.7)
+  
+  plot(nonbreed,useRaster=TRUE,
+       axes=FALSE, 
+        add=TRUE,
+       legend=FALSE,
+       col=c(rep("transparent",5),rev(bpy.colors(50))),
+       cex.axis=0.7)
+  
+  plot(wrld_simpl,border="gray",add=TRUE)
+  scalebar(d = 500, xy=c(-96,25),divs=2,lonlat=T,label = c(0,250,500),below="km",type="bar",cex=0.5)
+  box()
+```
+
+Getting the summary statistics is fairly easy. Here we collapse all chains using the `locationSummary` function. 
+
+```{r echo=FALSE}
+  zummary<- locationSummary(fit$z,
+                             time=fit$model$time,
+                             collapse=T) 
+  
+  head(zummary)
+```
+
+Make a plot that shows the median Longitude and Latitude through time along with the 95 credible interval. 
+
+```{r}
+par(mfrow=c(2,1),mar=c(4,4,0,0))
+plot(zummary$Time1,zummary$"Lon.50%",
+     type="l",
+     ylab = "Longitude",
+     xlab = "",
+     yaxt = "n")
+axis(2, las = 2)
+polygon(x=c(zummary$Time1,rev(zummary$Time1)),
+        y=c(zummary$`Lon.2.5%`,rev(zummary$`Lon.97.5%`)),
+        border="gray",
+        col="gray")
+lines(zummary$Time1,zummary$"Lon.50%")
+plot(zummary$Time1,zummary$"Lat.50%",
+     type="l",
+     ylab = "Longitude",
+     xlab = "",
+     yaxt = "n",
+     ylim = c(20,60))
+axis(2, las = 2)
+polygon(x=c(zummary$Time1,rev(zummary$Time1)),
+        y=c(zummary$`Lat.2.5%`,rev(zummary$`Lat.97.5%`)),
+        border="gray",
+        col="gray")
+lines(zummary$Time1,zummary$"Lat.50%")
+```
+
+
+Migratory Routes
+---------------    
+Below are the approximate dates at each 'stationary' period determined via changes in the sunrise / sunset times. The summary map shows approximate location. These are just to get a general idea of when and where they stopped.
+
+```{r warning = FALSE}
+library(GeoLight)
+
+  twl.geolight <- data.frame(Twilight=twilight(fit$model$time[-length(fit$model$time)],
+                                                lon= zummary$`Lon.50%`,
+                                                lat=zummary$`Lat.50%`,
+                                                fit$model$rise[-length(fit$model$time)],
+                                                zenith=Zenith,
+                                                iters=3),
+                              Rise=fit$model$rise[-length(fit$model$time)])
+  
+  twl.GL <- data.frame(tFirst=twl.geolight[-nrow(twl.geolight),1],
+                            tSecond=twl.geolight[-1,1],
+                            type=ifelse(twl.geolight[,2],1,2)[-nrow(twl.geolight)])
+
+
+  
+  stops <- changeLight(twl = twl.GL[complete.cases(twl.GL),],
+                         quantile = 0.9,
+                         days = 2,
+                         plot = FALSE, 
+                         summary = TRUE)
+  
+Sites <- mergeSites(tFirst = twl.GL$tFirst,
+                    tSecond = twl.GL$tSecond, 
+                    type = twl.GL$type,
+                    site = stops$site,
+                    degElevation = 90-Zenith,
+                    distThreshold = 300)
+
+siteMap(cbind(zummary$`Lon.50%`, zummary$`Lat.50%`),
+          map.range="America",
+          site=Sites$site,
+          xlim = xlim,
+          ylim = ylim,
+          type='cross',hull=F,legend=FALSE)
+```
+    
+## FLightR
