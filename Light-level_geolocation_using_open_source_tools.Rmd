@@ -71,11 +71,13 @@ Which package should I use?
 ---
 
 ***
-> Some really informative text here in the future
+> **GeoLight** uses the threshold model to determine locations. Unlike the other packages described below, GeoLight doesn't include a movement model and relies solely on the light-level data. GeoLight can be used with a variety of unit types i.e. `.lig` or `.lux` files. 
 >
->if GeoLight - go to this portion of the markdown
->if SGAT - go to this portion of markdown
->if FLightR - go to this portion of markdown
+>**SGAT** pronounced "tags backwards" also uses the threshold method but also includes a movement model and positions are estimated based on 1) the observed difference between known twilights and twilights recorded by the unit and 2) a movement model. The positions are estimated within a Bayesian framework. SGAT can used with `.lig` and `.lux`. 
+>
+>**FLightR** uses a realistic movement model, the relationship between observed and expected light-levels and implements a particle filter to estimate locations. Of the three packages FLightR is the most computationally intense and most sophisticated. FLightR works best with `.lux` files but can be used with `.lig`. However, `.lig` files with lots of shading events that bounce from 0 to 64 dramatically don't work well. More information about the underlying model can be found <a href="http://onlinelibrary.wiley.com./doi/10.1111/jav.00891/abstract">here</a>. 
+>
+>
 ***
 
 
