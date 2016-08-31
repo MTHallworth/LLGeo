@@ -68,7 +68,7 @@ library(maptools)
 ```
 
 Which package should I use?
----
+-----
 
 ***
 > **GeoLight** uses the threshold model to determine locations. Unlike the other packages described below, GeoLight doesn't include a movement model and relies solely on the light-level data. GeoLight can be used with a variety of unit types i.e. `.lig` or `.lux` files. 
@@ -80,6 +80,9 @@ Which package should I use?
 >
 ***
 
+Go to [SGAT](#sgat)
+
+Go to [FLightR](#flightr)
 
 Getting data into R 
 -------------------
@@ -298,7 +301,7 @@ The following code subsets the twilight data to include only those data between 
 twl <- twl[twl$Twilight > On_Bird[1] & twl$Twilight < On_Bird[2],]
 ```
 
-
+## <a name="sgat"></a> SGAT
 Calibration
 --------
 Calibration is important to 1) understand where the sun is with respect to the horizon (sun-elevation angle) or with respect to the vertical (zenith angle) and 2) identify the error distribution around when the tag indicates a twilight event occurred and the actual twilight event at a known location. These two pieces of information are very important for using light-level geolocation to track migratory animals. 
@@ -701,7 +704,7 @@ r <- raster(nrows=4*diff(ylim), # this sets the spatial resolution
 
 Getting the summary statistics is fairly easy. Here we collapse all chains using the `locationSummary` function. 
 
-```{r echo=FALSE}
+```{r echo=FALSE, out.width=100}
   zummary<- locationSummary(fit$z,
                              time=fit$model$time,
                              collapse=T) 
@@ -726,7 +729,7 @@ polygon(x=c(zummary$Time1,rev(zummary$Time1)),
 lines(zummary$Time1,zummary$"Lon.50%")
 plot(zummary$Time1,zummary$"Lat.50%",
      type="l",
-     ylab = "Longitude",
+     ylab = "Latitude",
      xlab = "",
      yaxt = "n",
      ylim = c(20,60))
@@ -742,6 +745,10 @@ lines(zummary$Time1,zummary$"Lat.50%")
 Migratory Routes
 ---------------    
 Below are the approximate dates at each 'stationary' period determined via changes in the sunrise / sunset times. The summary map shows approximate location. These are just to get a general idea of when and where they stopped.
+
+```{r set-options, echo=FALSE}
+options(width = 100)
+```
 
 ```{r warning = FALSE}
 library(GeoLight)
@@ -780,5 +787,7 @@ siteMap(cbind(zummary$`Lon.50%`, zummary$`Lat.50%`),
           ylim = ylim,
           type='cross',hull=F,legend=FALSE)
 ```
-    
-## FLightR
+
+     
+## <a name="flightr"></a>FLightR  
+
