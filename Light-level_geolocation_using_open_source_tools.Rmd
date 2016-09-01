@@ -667,10 +667,12 @@ r <- raster(nrows=4*diff(ylim), # this sets the spatial resolution
   
   DATES <- S$mcmc[[1]]$time[ which( S$mcmc[[1]]$rise==TRUE) ]
   
-  ReleaseDay <- 1
-  Aug01 <- which(strptime(DATES, format = "%Y-%m-%d", tz = "GMT")==as.POSIXct("2011-08-01",format="%Y-%m-%d",tz="GMT"))
-  Jan01 <- which(strptime(DATES, format = "%Y-%m-%d", tz = "GMT")==as.POSIXct("2012-01-01",format="%Y-%m-%d",tz="GMT"))
-  Mar01 <- which(strptime(DATES, format = "%Y-%m-%d", tz = "GMT")==as.POSIXct("2012-03-01",format="%Y-%m-%d",tz="GMT"))
+# Find the rows that correspond with the dates of interest 
+  
+ReleaseDay <- 1
+Aug01 <- which(strptime(DATES, format = "%Y-%m-%d", tz = "GMT")==as.POSIXct("2011-08-01",format="%Y-%m-%d",tz="GMT"))
+Jan01 <- which(strptime(DATES, format = "%Y-%m-%d", tz = "GMT")==as.POSIXct("2012-01-01",format="%Y-%m-%d",tz="GMT"))
+Mar01 <- which(strptime(DATES, format = "%Y-%m-%d", tz = "GMT")==as.POSIXct("2012-03-01",format="%Y-%m-%d",tz="GMT"))
 
   # Breeding 
   # Get time when on the breeding grounds 
@@ -1026,7 +1028,7 @@ Result <- run.particle.filter(all.out = all.in,
 Sys.time() - a
 ```
 
-Save your results as an RData object
+Save your results as an `.RData` object
 
 ```{r, eval = FALSE}
 save(Result, file="data/FLightR_results.RData")
@@ -1039,6 +1041,9 @@ load("data/FLightR_results.RData")
 ```
 
 There is quite a lot of information in the `Result` object. You can explore these on your own. 
+```{r echo=FALSE}
+options(width = 200)
+```
 
 ```{r}
 names(Result)
@@ -1046,8 +1051,13 @@ names(Result)
 names(Result$Spatial)
 
 names(Result$Results)
+```
 
-head(Result$Results$Quantiles)
+Have a quick look in table form 
+```{r}
+print(Result$Results$Quantiles[1:5,],digits=3)
+
+str(Result$Results$Quantiles)
 
 head(Result$Results$Movement.results)
 ```
@@ -1065,18 +1075,23 @@ Plot and save a simple map
 ```{r eval=FALSE}
 map.FLightR.ggmap(Result, save.options = list(filename = "data/FLightR.map.pdf"))
 ```
-```{r echo=FALSE,message=FALSE}
-map.FLightR.ggmap(Result)
-```
 
 Generate a plot that shows the longitude and latitude throughout the tracking period 
 ```{r}
 plot.lon.lat(Result)
 ```
 
+***
+> #### Exercise:
+> Try restricting the migratory path to include only land as stationary periods.  
+> Where in the process would you set that?
+> Do the results differ? If so, how they differ?  
+
+***
+
+[back to top](#packages)
 
 # <a name="formats"></a>Data Formats
 
-[back to top](#packages)
 
 <img src="Markdown/MT_logo.gif" width = 300/> <img src="Markdown/COS.png" width=200/> <img src="Markdown/NSF.gif" width=200/>
