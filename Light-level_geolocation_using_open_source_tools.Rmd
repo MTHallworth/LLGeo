@@ -95,7 +95,7 @@ library(SGAT,lib.loc="C:/Users/hallworthm/Google_Drive/Hallworth_R_Library")
 library("TwGeos")                                 
 
 #read the data into a dataframe called d.lig
-d.lig <- readLig("data/749_000.lig", skip = 0)
+d.lig <- readLig("data/TRES.lig", skip = 0)
 
 #reduce the dataframe to just Date and Light
 d.lig <- subset(d.lig,select=c("Date","Light"))   
@@ -112,7 +112,7 @@ If you have a `.lux` file from Migrate Technology then you would use the `readMT
 
 ```{r}
 #read the data into a dataframe called d.lux
-d.lux<-readMTlux("data/A2_raw_data.lux")     
+d.lux<-readMTlux("data/Godwit.lux")     
 ```
 ```{r echo=FALSE}
 head(d.lux)
@@ -302,7 +302,11 @@ twl <- twl[twl$Twilight > On_Bird[1] & twl$Twilight < On_Bird[2],]
 ```
 
 [back to top](#packages)
-
+    
+    
+<img src="http://www.audubon.org/sites/default/files/styles/nas_bird_teaser_illustration/public/2972_Sibl_9780307957900_art_r1.jpg?itok=47NJq3By" width=200 height=200 />
+    
+    
 # <a name="sgat"></a> SGAT
 
 Calibration
@@ -799,6 +803,8 @@ siteMap(cbind(zummary$`Lon.50%`, zummary$`Lat.50%`),
     
 # <a name="flightr"></a>FLightR  
 
+<img src="http://www.audubon.org/sites/default/files/styles/nas_bird_teaser_illustration/public/1405_Sibl_9780307957900_art_r1.jpg?itok=juwNVz1Q" width=200 height=200 />
+
 The FLightR package works really well with `.lux` files from Migrate Technology tags because of the way the light-level data are stored (lux). Here we will demonstrate the use of the FLightR package using data recovered from a Migrate Technology tag. 
 ```{r warning = FALSE, message = FALSE, error= FALSE}
 library(FLightR)
@@ -807,7 +813,7 @@ library(FLightR)
 Read in data 
 -------------
 ```{r}
-d.lux<-readMTlux("data/A2_raw_data.lux")
+d.lux<-readMTlux("data/Godwit.lux")
 ```
 
 Notice the difference between the `.lux` and the `.lig` files. 
@@ -861,12 +867,12 @@ Now we write the `lux.tags` object to a file that is read in by FLightR to begin
 ***NOTE*** Be sure to change the file path name to match your working directory.   
 
 ```{r}
-write.csv(lux.tags,"data/lux.tags.csv",quote=FALSE,row.names=FALSE)
+write.csv(lux.tags,"data/Gotwit.lux.csv",quote=FALSE,row.names=FALSE)
 ```
 
 ```{r}
 # opens and formats data straight from either the file we just created or TAGS formatted data. 
-Light.Data<-get.tags.data("data/lux.tags.csv") 
+Light.Data<-get.tags.data("data/Gotwit.lux.csv") 
 ```
 
 Here we set the capture location
