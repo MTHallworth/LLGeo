@@ -1,5 +1,6 @@
 ---
 title: Geolocation analysis with Open Source Tools 2016 North American Ornithological Congress, Washington D.C.
+date: "`r Sys.Date()`"
 output: 
  html_document:
     theme: "journal"
@@ -31,7 +32,7 @@ Getting started
 
 In order to analyze light-level geolocator data in R you need a few packages. The workflow described below covers three popular open-source tools to analyze the light-level data. This document covers the how to analyze the data in `GeoLight`, `SGAT` and `FLightR` packages. 
 
-### Loading required packages
+### <a name="packages"></a>Loading required packages
 Be sure to acquire all required packages prior to running this analysis. See the <a href="https://github.com/Eli-S-Bridge/NAOC_Geos_2016/blob/master/GetPackages.R">GetPackages.R script</a>  to download all required packages if you haven't done so already. 
 
 ```{r eval = FALSE}
@@ -73,16 +74,15 @@ Which package should I use?
 ***
 > **GeoLight** uses the threshold model to determine locations. Unlike the other packages described below, GeoLight doesn't include a movement model and relies solely on the light-level data. GeoLight can be used with a variety of unit types i.e. `.lig` or `.lux` files. 
 >
->**SGAT** pronounced "tags backwards" also uses the threshold method but also includes a movement model and positions are estimated based on 1) the observed difference between known twilights and twilights recorded by the unit and 2) a movement model. The positions are estimated within a Bayesian framework. SGAT can used with `.lig` and `.lux`. 
+>**SGAT** pronounced "tags backwards" also uses the threshold method but also includes a movement model and positions are estimated based on 1) the observed difference between known twilights and twilights recorded by the unit and 2) a movement model. The positions are estimated within a Bayesian framework. SGAT can used with `.lig` and `.lux`.     
+> Go to [SGAT](#sgat)
 >
->**FLightR** uses a realistic movement model, the relationship between observed and expected light-levels and implements a particle filter to estimate locations. Of the three packages FLightR is the most computationally intense and most sophisticated. FLightR works best with `.lux` files but can be used with `.lig`. However, `.lig` files with lots of shading events that bounce from 0 to 64 dramatically don't work well. More information about the underlying model can be found <a href="http://onlinelibrary.wiley.com./doi/10.1111/jav.00891/abstract">here</a>. 
->
+>**FLightR** uses a realistic movement model, the relationship between observed and expected light-levels and implements a particle filter to estimate locations. Of the three packages FLightR is the most computationally intense and most sophisticated. FLightR works best with `.lux` files but can be used with `.lig`. However, `.lig` files with lots of shading events that bounce from 0 to 64 dramatically don't work well. More information about the underlying model can be found <a href="http://onlinelibrary.wiley.com./doi/10.1111/jav.00891/abstract">here</a>.     
+>Go to [FLightR](#flightr)
 >
 ***
 
-Go to [SGAT](#sgat)
-
-Go to [FLightR](#flightr)
+***Note*** There are differences in the formats that are needed for each package. See [Formats](#formats) for more information. 
 
 Getting data into R 
 -------------------
@@ -155,7 +155,7 @@ library(SGAT,lib.loc="C:/Users/hallworthm/Google_Drive/Hallworth_R_Library")
 ```
 ```{r eval = FALSE}
 library(SGAT)
-?preproccessLight()
+?preprocessLight()
 
 ```
 
@@ -301,7 +301,10 @@ The following code subsets the twilight data to include only those data between 
 twl <- twl[twl$Twilight > On_Bird[1] & twl$Twilight < On_Bird[2],]
 ```
 
-## <a name="sgat"></a> SGAT
+[back to top](#packages)
+
+# <a name="sgat"></a> SGAT
+
 Calibration
 --------
 Calibration is important to 1) understand where the sun is with respect to the horizon (sun-elevation angle) or with respect to the vertical (zenith angle) and 2) identify the error distribution around when the tag indicates a twilight event occurred and the actual twilight event at a known location. These two pieces of information are very important for using light-level geolocation to track migratory animals. 
@@ -501,7 +504,7 @@ year<-c("2011-01-01","2012-01-01")
          col=ifelse(InitialPath$time<as.POSIXct(year[2],format="%Y-%m-%d"),"blue","green"))
   points(CapLocs[1],CapLocs[2],pch=19,cex=2)
 ```
-
+   
 
 Creating a path
 ----------------
@@ -544,6 +547,7 @@ fixedx[c(1:10,(nrow(x0)-3):nrow(x0))] <- TRUE
   
   z0 <- trackMidpts(x0) # update z0 positions
 ```
+
 
 ### Restrict path to land
 
@@ -787,7 +791,292 @@ siteMap(cbind(zummary$`Lon.50%`, zummary$`Lat.50%`),
           ylim = ylim,
           type='cross',hull=F,legend=FALSE)
 ```
+    
+    
+[back to top](#packages)
+    
+# <a name="flightr"></a>FLightR  
 
-     
-## <a name="flightr"></a>FLightR  
+The FLightR package works really well with `.lux` files from Migrate Technology tags because of the way the light-level data are stored (lux). Here we will demonstrate the use of the FLightR package using data recovered from a Migrate Technology tag. 
+```{r warning = FALSE, message = FALSE, error= FALSE}
+library(FLightR)
+```
 
+Read in data 
+-------------
+```{r}
+d.lux<-readMTlux("data/A2_raw_data.lux")
+```
+
+Notice the difference between the `.lux` and the `.lig` files. 
+```{r echo = FALSE}
+head(d.lux)
+str(d.lux)
+```
+
+Here are what the data look like - we can plot the data using `lightImage` function. 
+
+```{r}
+lightImage( tagdata = d.lux, # light data
+            offset = 12,     # adjusts the y-axis to put night (dark shades) in the middle
+            zlim = c(0, 64), # y axis
+            dt = 120)        # miniumn dark period
+```
+
+Define twilights
+
+```{r}
+seed <- as.POSIXct("2014-01-01 04:00", origin  = "1970-01-01", tz = "GMT")
+
+twl.lux  <- findTwilights(tagdata = d.lux, 
+                      threshold = 1.5, 
+                      include = seed,
+                      dark.min = 0) # minimum dark period in minutes
+```
+
+Adjust / delete outlier twilights
+
+```{r}
+twl.lux <- twilightEdit(twilights = twl.lux, 
+                    window = 4,           # two days before and two days after
+                    outlier.mins = 45,    # difference in mins
+                    stationary.mins = 25, # are the other surrounding twilights within 25 mins of one another
+                    plot = TRUE)
+```
+
+**Important** Do not adjust time of twilights like we did above for SGAT if using FLightR because it does it automatically. 
+
+Now we need to covert the data `.lux` file into a format that FLightR can use. Here we use the `BAStag2TAGS` function in the to do that. 
+
+```{r}
+lux.tags<-BAStag2TAGS(raw = d.lux, 
+                      twl = twl.lux, 
+                      threshold = 1.5)
+```
+
+Now we write the `lux.tags` object to a file that is read in by FLightR to begin the analysis. 
+
+***NOTE*** Be sure to change the file path name to match your working directory.   
+
+```{r}
+write.csv(lux.tags,"data/lux.tags.csv",quote=FALSE,row.names=FALSE)
+```
+
+```{r}
+# opens and formats data straight from either the file we just created or TAGS formatted data. 
+Light.Data<-get.tags.data("data/lux.tags.csv") 
+```
+
+Here we set the capture location
+
+```{r}
+# start location longitude and latitude
+CapLocs=c(5.43, 52.93) 
+```
+
+Next we use the data to determine the calibrartion period. During the calibration period the dawn transitions (red) and dusk transitions (black) should be very similar (overlap). Here we add two vertical lines to determine 1) the end of the first calibration period and 2) the start of the second calibration period at the end of the data before capture. 
+
+```{r,eval=FALSE, message = FALSE}
+plot.slopes.by.location(Proc.data = Light.Data, 
+                        location = CapLocs)
+
+#Use abline to visualize potential calibration periods
+
+# end of first calibration period
+abline(v=as.POSIXct("2013-08-23"), col = "blue",lwd=2) 
+
+# start of the second calibration period
+abline(v=as.POSIXct("2014-05-05"), col = "green", lwd=2) 
+```
+
+```{r,echo=FALSE, message = FALSE, results="hide",warning=FALSE, error = FALSE}
+plot.slopes.by.location(Proc.data = Light.Data, 
+                        location = CapLocs)
+
+#Use abline to visualize potential calibration periods
+
+# end of first calibration period
+abline(v=as.POSIXct("2013-08-23"), col = "blue",lwd=2) 
+
+# start of the second calibration period
+abline(v=as.POSIXct("2014-05-05"), col = "green", lwd=2) 
+```
+
+Now we create a `data.frame` that includes data from each calibration period.     
+The columns are:
+1. start of the calibration period    
+1. end of the calibration period    
+1. longitude of the calibration location    
+1. latitude of the calibration location
+
+```{r}
+#This will create two lines of data
+Calibration.periods<-data.frame(calibration.start = as.POSIXct(c(NA, "2014-05-05")),   
+                                calibration.stop = as.POSIXct(c("2013-08-23", NA)),
+                                lon = CapLocs[1], 
+                                lat = CapLocs[2]) 
+```
+
+You can also use two geographic coordinates if you have more than one calibration location. This may occur if you deploy the tag at one location and happen to capture it at a different location. You could use the following code to use two different locations. `lon = c(5.43, 6.00), lat = c(52.93,52.94)`
+
+Here is what the calibration period data frame looks like. This object is telling FLightR to start calibration at the start of recording and stop on Aug 23 2013 and the tag was located at the location specified by the latitude, longitude. The second row tells FLightR that the second calibration period should start on May 05 2014 and continue until the end of the data set.  
+
+```{r}
+#View results
+Calibration.periods
+```
+
+
+Now we make a calibration object that FLightR will use to determine the relationship between recorded light-levels and the expected light-levels. 
+
+```{r eval = FALSE}
+#create a calibration object 
+Calibration<-make.calibration(Proc.data = Light.Data, 
+                              Calibration.periods = Calibration.periods,
+                              model.ageing = FALSE,
+                              plot.each = FALSE, 
+                              plot.final = FALSE)
+
+#save it for later use
+save(Calibration, file = "data/FLightR_calibration")
+```
+    
+To read the saved calibration object we just created in later - you can use the following code. 
+
+```{r}
+#loads object called Calibration
+load("data/FLightR_calibration") 
+```
+
+Establishing spatial grid 
+----------
+
+Here we establish a spatial grid and rules for possible migration paths. The default resolution is 50 x 50km grid cells. The inputs or terms for `left`, `right`, `bottom` and `top` define your bounding box. The argument `distance.from.land.allowed.to.use` should be a vector with length of two. The first number is a negative distance allowed to use while over land (restricts birds to flying only over coastlines and water) and second is distance from land allowed to use while over water (restricts birds to flying only over coastlines and land). The `distance.from.land.allowed.to.stay` should also be a vector of length two. The first number is negative distance where the bird is allowed to be stationary (restricts birds to landing only on coastlines and land). The second value is distance from land allowed to fly over during twilight while over water (restricts birds to landing only on coastlines and water). Use infinity `c(-Inf,Inf)` to not use any restrictions. We won't restrict paths for this example here. 
+
+```{r}
+Grid<-make.grid(left = -14, 
+                bottom = 30,
+                right = 13, 
+                top = 57,
+                #Use infinity to withold restrictions on migration paths
+                distance.from.land.allowed.to.use = c(-Inf, Inf),  
+                distance.from.land.allowed.to.stay = c(-Inf, Inf))
+```
+
+
+Create a proposal 
+----------
+
+Here we create an array of settings and data that incorporates all the objects created at earlier steps:    
+
+    - the light data with the detected twilight events (Proc.data)    
+    - the spatial parameters (Grid)    
+    - geographic coordinates of the starting location (start)    
+    - the calibration parameters (Calibration)    
+    
+This can take a while
+
+```{r message = FALSE, eval=FALSE}
+Sys.time()
+a<-Sys.time()
+
+all.in<-make.prerun.object(Proc.data = Light.Data, 
+                           Grid = Grid, 
+                           start = CapLocs, # c(Longitude, Latitude)
+                           Calibration = Calibration)
+
+Sys.time()-a
+```
+
+Running the Particle Filter
+--------
+
+Here is where the results are calculated (coordinates, behavior, stationarity). Within the `run.particle.filter` function, the following parameters can be preset:    
+
+    -number of particles (1e4 is recommended for test and 1e6 for the analysis)     
+    -known.last = TRUE if you know the track ends where it began  (FALSE is the default) 
+    -check.outliers = TRUE, for the "on a fly" discard of outliers (only recommended to make pretty maps).
+
+
+```{r, eval=FALSE,echo=FALSE,message=FALSE,warning=FALSE,error=FALSE}
+nParticles= 10000    #just a quick trial
+
+a <- Sys.time()     
+
+Result <- run.particle.filter(all.out = all.in, 
+                              threads = -1,
+                              nParticles = nParticles, 
+                              known.last = TRUE,
+                              precision.sd = 25, 
+                              check.outliers = FALSE)
+Sys.time() - a
+```
+
+```{r, eval=FALSE,message=FALSE,warning=FALSE,error=FALSE}
+nParticles = 1000    #just a quick trial
+
+a <- Sys.time()     
+
+Result <- run.particle.filter(all.out = all.in, 
+                              threads = -1,
+                              nParticles = nParticles, 
+                              known.last = TRUE,
+                              precision.sd = 25, 
+                              check.outliers = FALSE)
+Sys.time() - a
+```
+
+Save your results as an RData object
+
+```{r, eval = FALSE}
+save(Result, file="data/FLightR_results.RData")
+```
+
+Results
+-------
+```{r echo=FALSE}
+load("data/FLightR_results.RData")
+```
+
+There is quite a lot of information in the `Result` object. You can explore these on your own. 
+
+```{r}
+names(Result)
+
+names(Result$Spatial)
+
+names(Result$Results)
+
+head(Result$Results$Quantiles)
+
+head(Result$Results$Movement.results)
+```
+
+Plot the results
+--------
+
+Plot a simple map 
+```{r message=FALSE}
+#Plot a simple map
+map.FLightR.ggmap(Result)
+```
+
+Plot and save a simple map
+```{r eval=FALSE}
+map.FLightR.ggmap(Result, save.options = list(filename = "data/FLightR.map.pdf"))
+```
+```{r echo=FALSE,message=FALSE}
+map.FLightR.ggmap(Result)
+```
+
+Generate a plot that shows the longitude and latitude throughout the tracking period 
+```{r}
+plot.lon.lat(Result)
+```
+
+
+# <a name="formats"></a>Data Formats
+
+[back to top](#packages)
+
+<img src="Markdown/MT_logo.gif" width = 300/> <img src="Markdown/COS.png" width=200/> <img src="Markdown/NSF.gif" width=200/>
