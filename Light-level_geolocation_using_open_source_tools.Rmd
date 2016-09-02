@@ -3,6 +3,7 @@ title: Geolocation analysis with Open Source Tools 2016 North American Ornitholo
 date: "`r Sys.Date()`"
 output: 
  html_document:
+    code_folding: show
     theme: "journal"
     toc: true
     toc_float: true
@@ -22,7 +23,7 @@ output:
 ***
 The following document outlines the steps for analyzing data from archival light-level geolocators (hereafter geolocators). Geolocators have been used to track individuals since the early 1990s but were restricted to large organisms because of their large size. Recently, with the miniturization of geolocators, researchers are now able to deploy geolocators on smaller and smaller species. Geolocators are devices that record ambient light levels every 2, 5, or 10 min depending on the model. The devices are attached to individuals which then migrate with the tag while it records ambient light-levels throughout the year. Once recovered, the data are downloaded and analyzed to determine twilight events (sunrise or sunset). See figure below created by Eli Bridge. Approximate geographic locations are then derived using the twilight events. 
 
-<img src="Markdown/Bridge_Figure.gif" width=800 />
+<img src="Markdown/Bridge_figure.gif" width=800 />
 
 
 The code provided below was complied for the Geolocation analysis with Open Source Tools workshop at the North American Ornithological Congress meeting in Washington D.C.
@@ -459,7 +460,11 @@ InitialPath <- thresholdPath(twilight = twl$Twilight,
                              rise = twl$Rise,
                              zenith = Zenith,
                              tol = 0)
+```
 
+Here is the code to make a figure to show the inital path. 
+
+```{r}
 year<-c("2011-01-01","2012-01-01")
 
   layout(matrix(c(1,3,
@@ -557,16 +562,27 @@ fixedx[c(1:10,(nrow(x0)-3):nrow(x0))] <- TRUE
 
 You can restrict the path to locations on land - birds are still able to fly over water but have stationary locations on land. This makes sense for a terrestrial bird like warblers. It may not for other species, as always, consider the ecology of the species when conducting the analysis. Here, we will restrict the paths to the `wrld_simpl`.
 
-We include a prior distribution so only locations on land within the Americas are used. We first create a function to covert the `Americas` shapefile to a binary surface.
+We include a prior distribution so only locations on land within the Americas are used. We first create a function to covert the `wrld_smpl` shapefile to a binary surface.
+
+Here is the function to create a distribution mask. 
 
 ```{r}
 ## Function to construct a land/sea mask
 distribution.mask <- function(xlim, ylim, n = 4, land = TRUE, shape) {
-  r <- raster(nrows = n * diff(ylim), ncols = n * diff(xlim), xmn = xlim[1], 
-              xmx = xlim[2], ymn = ylim[1], ymx = ylim[2], crs = proj4string(shape))
-  r <- cover(rasterize(shape, shift = c(-360, 0), r, 1, silent = TRUE), 
+  
+  r <- raster(nrows = n * diff(ylim),
+              ncols = n * diff(xlim),
+              xmn = xlim[1], 
+              xmx = xlim[2], 
+              ymn = ylim[1], 
+              ymx = ylim[2], 
+              crs = proj4string(shape))
+  
+  r <- cover(rasterize(shape, shift = c(-360, 0), r,1, silent = TRUE), 
              rasterize(shape, r, 1, silent = TRUE), rasterize(shape, r, 1, silent = TRUE))
+  
   r <- as.matrix(is.na(r))[nrow(r):1, ]
+  
   if (land) 
     r <- !r
   xbin <- seq(xlim[1], xlim[2], length = ncol(r) + 1)
@@ -576,13 +592,19 @@ distribution.mask <- function(xlim, ylim, n = 4, land = TRUE, shape) {
     r[cbind(.bincode(p[, 2], ybin), .bincode(p[, 1], xbin))]
   }
 }
+```
 
-WGS84<-"+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+Set the x and y limits for the raster surface. It's important that you set these limits to include all longitude and latitude values where the individual may occur throughout the year. If your xlim and ylim don't include all areas you won't get results for that portion of the range.
 
-xlim=c(-120,-60)
+```{r}
+xlim=c(-120,-60) 
 ylim=c(0,70)
+```
 
-## Define mask for Ovenbird distribution
+Here we define the distribution mask to only include stationary locations that occur on land. This makes sense for something like a Tree swallow but may not for other species - **always** consider the ecology of the species while conducting the analysis. 
+
+```{r}
+## Define the distribution mask
 is.dist <- distribution.mask(shape=wrld_simpl,
                              xlim = xlim,
                              ylim = ylim,
@@ -594,8 +616,22 @@ log.prior <- function(p) {
   f <- is.dist(p)
   ifelse(f | is.na(f), 0, -10)
 }
+```
 
+In the SGAT package we need to specify a model for the analysis. Below we specify a few key parameters.    
 
+1. `twilight` =  twilight times that we determined above.    
+1. `rise` = a logical vector sunrise = TRUE - this is calculated at the same time when you define twilights.    
+1. `twilight.model` = the distribution type for the difference between observed twilight and expected twilight.    
+1. `alpha` = the shape of the twilight.model distribution    
+1. `beta` = the movement model parameter      
+1. `logp.x` and `logp.z` = constraints set on the x and z (intermediate) positions. This is where you set the constraints for land        
+1. `x0` = initial values for the birds path (x positions)        
+1. `z0` = initial values for the birds path (z positions)    
+1.  `zenith` = the zenith angle to be used. This can take a single value (no change in zenith throughout the year) or a vector of `nrow(twl)` if you want to use different zenith angels.    
+1. `fixedx` = a vector telling the model which locations need to be estimated because positions are unknown.     
+
+```{r}
 # Define the threshold model - slimilar to above #
 
 model <- thresholdModel(twilight = twl$Twilight,
@@ -610,12 +646,20 @@ model <- thresholdModel(twilight = twl$Twilight,
                         zenith = Zenith,
                         fixedx = fixedx)
 
+```
 
+We also need to define the error distribution around each location. We set that using a multivariate normal distribution
+
+```{r}
 # This defines the error distribution around each location #
 
   proposal.x <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(x0))
   proposal.z <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(z0))
+```
 
+We then fit the model using the `estelleMetropolis` sampler. Here you can set the number of iterations (`iters`), the thinning rate (`thin`) and the number of chains to run (`chains`).
+
+```{r}
   fit <- estelleMetropolis(model = model,
                            proposal.x = proposal.x,
                            proposal.z = proposal.z,
@@ -655,6 +699,8 @@ fit  <- estelleMetropolis(model = model,
 
 ## Inital results 
 
+To view the results of the MCMC process we first need to create an empty raster to fill with the results. 
+
 ```{r}
 # This step makes an empty raster #
 r <- raster(nrows=4*diff(ylim), # this sets the spatial resolution 
@@ -663,46 +709,63 @@ r <- raster(nrows=4*diff(ylim), # this sets the spatial resolution
             xmx=xlim[2],
             ymn=ylim[1],
             ymx=ylim[2])
+```
 
+We can then summarize the data using the `slices` function. Here we "slice" the intermediate locations by day. You can set `breaks` to day, month, etc. 
+
+```{r}
   S <- slices(type="intermediate",
                    breaks="day",
                    mcmc=fit,
                    grid=r)
-  
+```
+
+Next if we are interested in certain days or a period of interest you may want to pull out locations that fall within a certain time period. Here we extract the dates from the MCMC process. 
+
+```{r}
   DATES <- S$mcmc[[1]]$time[ which( S$mcmc[[1]]$rise==TRUE) ]
+```
   
+We can create objects that correspond with certain dates of interest. These objects are the rows that correpsond with the dates of interest. 
+
+```{r}
 # Find the rows that correspond with the dates of interest 
   
 ReleaseDay <- 1
 Aug01 <- which(strptime(DATES, format = "%Y-%m-%d", tz = "GMT")==as.POSIXct("2011-08-01",format="%Y-%m-%d",tz="GMT"))
 Jan01 <- which(strptime(DATES, format = "%Y-%m-%d", tz = "GMT")==as.POSIXct("2012-01-01",format="%Y-%m-%d",tz="GMT"))
 Mar01 <- which(strptime(DATES, format = "%Y-%m-%d", tz = "GMT")==as.POSIXct("2012-03-01",format="%Y-%m-%d",tz="GMT"))
+```
 
-  # Breeding 
-  # Get time when on the breeding grounds 
-  tm <-sliceInterval(S,k=c(ReleaseDay:Aug01))
+We can then use the `sliceInterval` function to extract and summarize the locations between the dates of interest. For example, if we were interested in time of year when an individual is on the breeding grounds - we may specify the dates from the `ReleaseDay` until the end of the breeding season - say `Aug01`. We may also be interested in the stationary non-breeding period - say between `Jan01` and `Mar01`. ***Note*** these dates were chosen haphazardly for this analysis. When conducting your own analysis make sure to consider the ecology of your species. 
+
   
-  
-  # "Slice" the data and save all dates between Release date and August 1 2011.
-  breed <-slice(S,k=c(ReleaseDay:Aug01))
+```{r}
+  # "Slice" the data and save all dates between Release date and August 1.
+  breed <-slice(S,k=c(ReleaseDay:Aug01)) # k = c(Start Date : End Date) using row numbers
   nonbreed <- slice(S, k=c(Jan01:Mar01))
-  
+```
+
+We can plot the results on the same map using the following code 
+```{r collapse=TRUE}
   plot(wrld_simpl, 
        xlim = c(-96, -72),
        ylim = c(23,47),
        border = "gray",
        col = "gray88")
   
-  plot(breed,useRaster=TRUE,
+  plot(breed,
+       useRaster=TRUE,
        axes=FALSE, 
-        add=TRUE,
+       add=TRUE,
        legend=FALSE,
        col=c("transparent",rev(bpy.colors(50))),
        cex.axis=0.7)
   
-  plot(nonbreed,useRaster=TRUE,
+  plot(nonbreed,
+       useRaster=TRUE,
        axes=FALSE, 
-        add=TRUE,
+       add=TRUE,
        legend=FALSE,
        col=c(rep("transparent",5),rev(bpy.colors(50))),
        cex.axis=0.7)
@@ -722,9 +785,9 @@ Getting the summary statistics is fairly easy. Here we collapse all chains using
   head(zummary)
 ```
 
-Make a plot that shows the median Longitude and Latitude through time along with the 95 credible interval. 
+Make a plot that shows the median Longitude and Latitude through time along with the 95% credible interval. 
 
-```{r}
+```{r collapse = TRUE}
 par(mfrow=c(2,1),mar=c(4,4,0,0))
 plot(zummary$Time1,zummary$"Lon.50%",
      type="l",
@@ -803,7 +866,7 @@ siteMap(cbind(zummary$`Lon.50%`, zummary$`Lat.50%`),
     
 # <a name="flightr"></a>FLightR  
 
-<img src="http://www.audubon.org/sites/default/files/styles/nas_bird_teaser_illustration/public/1405_Sibl_9780307957900_art_r1.jpg?itok=juwNVz1Q" width=200 height=200 />
+<img src="http://www.audubon.org/sites/default/files/styles/nas_bird_teaser_illustration/public/1405_Sibl_9780307957900_art_r1.jpg?itok=juwNVz1Q" width=300 height=300 />
 
 The FLightR package works really well with `.lux` files from Migrate Technology tags because of the way the light-level data are stored (lux). Here we will demonstrate the use of the FLightR package using data recovered from a Migrate Technology tag. 
 ```{r warning = FALSE, message = FALSE, error= FALSE}
@@ -1098,6 +1161,10 @@ plot.lon.lat(Result)
 [back to top](#packages)
 
 # <a name="formats"></a>Data Formats
+
+SGAT | FLightR 
+-------|-------
+`r twl[1,1]` | `r lux.tags[1,1]`
 
 
 <img src="Markdown/MT_logo.gif" width = 300/> <img src="Markdown/COS.png" width=200/> <img src="Markdown/NSF.gif" width=200/>
