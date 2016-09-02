@@ -250,6 +250,18 @@ tsimagePoints(twl$Twilight, offset = 18, pch = 16, cex = 0.5,
               col = ifelse(twl$Rise, "dodgerblue", "firebrick"))
 ```
 
+Now that we have adjusted the twilights - we have new information in out `twl` file. 
+
+```{r}
+str(twl)
+```
+
+In order to take advantage of the edits - you can subset the data using when `Deleted` = FALSE 
+
+```{r}
+twl <- subset(twl, Deleted == FALSE)
+```
+
 BAS or Biotrack tags record the maximum light value measured within a given time interval, in our example data set it records the maximum light level every two mins. You can double check the time interval by looking at the `.lig` file. Because of this we need to adjust the twilight time by half the sampling period. 
 
 ```{r}
@@ -263,9 +275,10 @@ d.lig$Date[3]-d.lig$Date[2]
 ```
 
 Here we adjust the twilight time back to account for the maximum light level readings every 2 mins. 
+
 ```{r}
 twl <- twilightAdjust(twilights = twl, 
-                      interval = 60) # The unit here is seconds
+                      interval = 120) # The unit here is seconds
 ```
 
 Let's truncate the data to include only the dates when we know the tag was on the bird. 
