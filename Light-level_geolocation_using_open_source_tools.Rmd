@@ -503,9 +503,22 @@ Now that we have the error distribution around known sunrise and sunset times as
 
 **Important** - the tol setting in the `thresholdPath` model sets the tolerance around equinox (i.e. filter out those points). Latitudinal estimates are unrelibale around the equinox periods because the change in day length is similar everywhere. `tol` values = 0 indicates save all points - larger tol values (0.2) filter out quite a few points. For this example, I set the tolerance to 0 (not the default) so I can look at all the data - even around equinox periods.
 
+Geolight has simple functions for generating coordinates from twlight data [coord()] and for plotting location data [tripMap()]. But first you have to get the data into tFirst, tSecond format.
+
 ```{r, message = FALSE, error = FALSE}
-  library(maptools)
-  data("wrld_simpl")
+##change data format
+  twlgl <- data.frame(tFirst = twl$Twilight[1:(nrow(twl)-1)],
+                     tSecond =  twl$Twilight[2:nrow( twl)],
+                     type = abs( twl$Rise[1:(nrow(twl)-1)]-2))
+##generate coordinates
+InitialPath <- coord(twl = twlgl, degElevation = sunAngle)
+##plot the data on a map
+tripMap(crds = InitialPath, equinox = TRUE, xlim = c(-90,-70), ylim = c(10,50), legend = TRUE)
+```
+
+The SGAT package offers a slightly more sophisticated function to generate an initial path.
+
+```{r, message = FALSE, error = FALSE}
 
 InitialPath <- thresholdPath(twilight = twl$Twilight,
                              rise = twl$Rise,
@@ -513,15 +526,8 @@ InitialPath <- thresholdPath(twilight = twl$Twilight,
                              tol = 0)
 ```
 
-Geolight has a simple plot making function called tripMap()
-
-```{r}
-ip <- coord(tFirst = twl$Twilight[1:nrow(twl)])
-
-tripMap <- (crds = InitialPath$x, equinox = TRUE, xlim = c(-90,-70), ylim = c(10,50), legend = TRUE)
-```
-
-Here is the code to make a figure to show the inital path. 
+You can use tripmap to show the path, as we did above. But here is some alternative code for
+making figures to show the inital path. 
 
 ```{r}
 year<-c("2011-01-01","2012-01-01")
@@ -557,7 +563,8 @@ year<-c("2011-01-01","2012-01-01")
   abline(v = as.POSIXct("2011-09-23"),col="red",lty=2,lwd=1.5)
   abline(v = as.POSIXct("2012-03-20"),col="red",lty=2,lwd=1.5)
   
-  
+  library(maptools)
+  data("wrld_simpl")
   plot(wrld_simpl,
        col = "grey95",
        xlim = c(-120,-60),
