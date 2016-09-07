@@ -437,10 +437,12 @@ You can get a quick and easy sun angle with the getElevation package in GeoLight
                            plot = FALSE, 
                            lnorm.pars = FALSE)
   
+  ##sunAngle is the angle of the sun relative to the horizon where the horizon is zero. 
+  ##Positive values are above the horizon and negative values are below the horizon.
   sunAngle
 ```
 
-Determining the sun elevation angle--here called the Zenith angle--for SGAT. For an SGAT analysis it is often best to use a zenith angle from the high end of the distrubution of zenith angles derived from the calibration data. In the example below we take the 95th quantile. Note that a larger zenith angle means that the sun is lower in the sky.
+Determining the sun elevation angle--here called the Zenith angle--for SGAT. A Zenith angle is the angle of the sun with respect to a verticle line. If the sun is directly overhea, the angle is zero. If the sun is on the horizon, the angle is about 90 degrees. For an SGAT analysis it is often best to use a zenith angle from the high end of the distrubution of zenith angles derived from the calibration data. In the example below we take the 95th quantile. Remember that a larger zenith angle means that the sun is lower in the sky.
 
 ```{r message = FALSE}
   
@@ -503,7 +505,7 @@ Now that we have the error distribution around known sunrise and sunset times as
 
 **Important** - the tol setting in the `thresholdPath` model sets the tolerance around equinox (i.e. filter out those points). Latitudinal estimates are unrelibale around the equinox periods because the change in day length is similar everywhere. `tol` values = 0 indicates save all points - larger tol values (0.2) filter out quite a few points. For this example, I set the tolerance to 0 (not the default) so I can look at all the data - even around equinox periods.
 
-Geolight has simple functions for generating coordinates from twlight data [coord()] and for plotting location data [tripMap()]. But first you have to get the data into tFirst, tSecond format.
+Geolight has simple functions for generating coordinates from twlight data [coord()] and for plotting location data [tripMap()]. But first you have to get the data into the tFirst-tSecond format.
 
 ```{r, message = FALSE, error = FALSE}
 ##change data format
@@ -526,8 +528,12 @@ InitialPath <- thresholdPath(twilight = twl$Twilight,
                              tol = 0)
 ```
 
-You can use tripmap to show the path, as we did above. But here is some alternative code for
-making figures to show the inital path. 
+You can use tripmap to show the path, as we did above... 
+```{r eval = FALSE}
+tripMap(crds = InitialPath$x, equinox = TRUE, xlim = c(-90,-70), ylim = c(10,50), legend = TRUE)
+```
+
+...or here is some alternative code for making figures to show the inital path. 
 
 ```{r}
 year<-c("2011-01-01","2012-01-01")
@@ -581,36 +587,37 @@ year<-c("2011-01-01","2012-01-01")
 ```
    
 
-Creating a path
-----------------
+Creating a path with SGAT
+-------------------------
 
-We can now use this initial path to initialize the analysis done using Markov Chain Monte Carlo model. This model will sample the data, while incorporating error to predict the path. However, we need to give it some starting values. In this first example we will restrict the path to fall only on land.
+The SGAT package contains functions that let you apply a movement model, landcover masking, and estimates of light detection error to generate a Markov Chain Monte Carlo algorithm that generates many likely movement paths from an individual data set. To run this sort of analysis we have to provide several parameters based on what we know about our data and the animal we are studying. We also have to provide an initial estimate of the movement path, which in this example will be the simple threshold path we generated above.
 
 The workflow for creating the final path is:    
 
 1. Give the model an inital path - just created above    
-1. define the mid-points between locations (needed to generate path)     
-1. define a flight distance parameter - this restrict really long - unlikely flights. (likelihood a bird will fly x distance based on flight speed)  
-1. run model multiple times until model converges and throw out the first interations as burn-in  
-1. refine the model further from previous runs   
-1. create the final path
+1. Define the mid-points between locations (needed to generate path)     
+1. Define a movement model (usually a distribution of flight speeds or daily flight distances wherein long flights are rare and short flights are common.)
+1. Establish the error distribution for twilight detection based on your calibration data
+1. (Optional) Establish a mask or grid that delineates location that are extremely unlikely to be part of the movement path (e.g. small landbirds will not reside on large water bodies).
+1. Run model multiple times until model converges and throw out the first interations as burn-in  
+1. Refine the model further from previous runs   
+1. Run the model several hundred times to create the final path
 
-Here, we define the initial path (x0) from our results above (the mapped route).
+First, we rename the initial path from our results above (the mapped route), and then find the midpoints between each pair of consecutive locations.
 
-### Initialize Estella model
+### Initialize the SGAT Estella model
 
 ```{r echo=FALSE}
-### Initialize Estella model
-
   # Take the location estimates created above
   x0 <- InitialPath$x
   
-  # the model also needs the mid-points - generate those here
+  # the will need the mid-points between locations - generate those here
   z0 <- trackMidpts(x0)
+```
 
-  # Flight model
-beta <- c(0.7, 0.08)
+Next, we create an object called fixedx that specifies the known locations for some or all of the calibration data and categorizes those locations as fixed so that the model does not try to estimate them.
 
+```{r echo=FALSE}  
   # Specify the dates when locations are fixed # 
 
 fixedx <- rep(FALSE, nrow(x0))
@@ -623,14 +630,23 @@ fixedx[c(1:10,(nrow(x0)-3):nrow(x0))] <- TRUE
   z0 <- trackMidpts(x0) # update z0 positions
 ```
 
+### Establish a movement model
+
+Now let's generate some parameters for a basic movement model. We need to provide a mean and standard deviation for a gamma distribution of flight speeds that get applied to each day of the analysis period. We typically want short (near zero) distance flights to be common and long distance flights to be relatively rare. So both mean and distribution should be small.
+
+```{r echo=FALSE}  
+  # Flight model
+beta <- c(0.7, 0.08) #mean and sd 
+## plot the gamma distribution with the establishe parameters
+plot(0:80, dgamma(0:80, beta[1], beta[2]), type = "l", col="red",
+     xlab = "Speed (km/h)", ylab = "Probability")
+```
 
 ### Restrict path to land
 
 You can restrict the path to locations on land - birds are still able to fly over water but have stationary locations on land. This makes sense for a terrestrial bird like warblers. It may not for other species, as always, consider the ecology of the species when conducting the analysis. Here, we will restrict the paths to the `wrld_simpl`.
 
 We include a prior distribution so only locations on land within the Americas are used. We first create a function to covert the `wrld_smpl` shapefile to a binary surface.
-
-Here is the function to create a distribution mask. 
 
 ```{r}
 ## Function to construct a land/sea mask
@@ -667,7 +683,7 @@ xlim=c(-120,-60)
 ylim=c(0,70)
 ```
 
-Here we define the distribution mask to only include stationary locations that occur on land. This makes sense for something like a Tree swallow but may not for other species - **always** consider the ecology of the species while conducting the analysis. 
+Here we define the distribution mask to only include stationary locations that occur on land. This makes sense for something like a Tree Swallow but may not for other species - **always** consider the ecology of the species while conducting the analysis. 
 
 ```{r}
 ## Define the distribution mask
@@ -683,6 +699,20 @@ log.prior <- function(p) {
   ifelse(f | is.na(f), 0, -10)
 }
 ```
+
+The log prior function produces a probability value for locations on land and locations at sea. If you feed the function a set of coordinates that is at sea the prior probilbity is -10
+
+```{r}
+## try a location in the Gulf of Mexico
+log.prior(cbind(-90, 25))
+```
+If you feed the function a set of coordinates that is at sea the prior probilbity is 0
+
+```{r}
+## try a location on land
+log.prior(cbind(-80, 45))
+```
+
 
 In the SGAT package we need to specify a model for the analysis. Below we specify a few key parameters.    
 
