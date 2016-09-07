@@ -188,7 +188,6 @@ twl <- preprocessLight(tagdata= d.lig,
 
 Another way to find the twilights without using the interactive process is the `findTwilights` function in the `TwGeos` package. The `findTwilights` function in finds the twiligtht times without individual insepction and without editing. First we need to know one date and time when it is night within the dataset. This date and time where you know it's night is called the `seed`. You can specify the `seed` in `as.POSIXct` format or you can specify the seed date by clicking on the light image. Use `?findTwilights()` to see the help file. 
 
-
 specify `seed` manually 
 
 ```{r}
@@ -251,7 +250,7 @@ twl <- twilightEdit(twilights = twl,
 
 ```
 
-This function provides a dataframe with both the original twlight times (in column "Twilight") and the edited times (in column "Twilight0").Now that we have adjusted the twilights - we have new information in out `twl` file. 
+This function provides a dataframe with both the edited twlight times (in column "Twilight") and the original twilight times (in column "Twilight0"). Now that we have adjusted the twilights - we have new information in out `twl` file. 
 
 ```{r echo=FALSE}
 head(twl)
@@ -267,9 +266,9 @@ write.csv(twl, file = "Edited_twilights", quote = FALSE, row.names = FALSE)
 Here is an image with the twilight outliers either adjusted or removed. 
 
 ```{r echo = FALSE}
-## Plot the edited data on ligthImage
+## Plot the edited data as a lightImage
 lightImage(d.lig, offset = 18, zlim = c(0, 12), dt = 120)
-tsimagePoints(twl$Twilight0, offset = 18, pch = 16, cex = 0.5,
+tsimagePoints(twl$Twilight, offset = 18, pch = 16, cex = 0.5,
               col = ifelse(twl$Rise, "dodgerblue", "firebrick"))
 ```
 
@@ -304,14 +303,11 @@ Let's truncate the data to include only the dates when we know the tag was on th
 On_Bird <- as.POSIXct(c("2011-06-26", "2012-05-11"), tz = "GMT")
 ``` 
 
-The orange lines represent the time period when the geolocator was on the bird. We will proceed with the analysis using the data when the tag was recording data on bird. 
+Now let's make a light image and use abline() to draw some orange lines that enclose the time period when the geolocator was on the bird.
 ```{r}
 lightImage(d.lig, offset = 19)
 tsimagePoints(twl$Twilight, offset = 19, pch = 16, cex = 0.5,
               col = ifelse(twl$Rise, "dodgerblue", "firebrick"))
-
-## Let's truncate the data using point and click
-# trnc <- as.POSIXct(locator(n=2)$x, origin = "1970-01-01", tz = "GMT")
 
 abline(v  = On_Bird, col  ="orange", lwd = 3)
 ```
@@ -330,6 +326,10 @@ The following code subsets the twilight data to include only those data between 
 
 ```{r}
 twl <- twl[twl$Twilight > On_Bird[1] & twl$Twilight < On_Bird[2],]
+##plot just the on-bird twilights on top of a light image.
+lightImage(d.lig, offset = 19)
+tsimagePoints(twl$Twilight, offset = 19, pch = 16, cex = 0.5,
+              col = ifelse(twl$Rise, "dodgerblue", "firebrick"))
 ```
 
 [back to top](#packages)
@@ -416,9 +416,10 @@ From the image above it looks like the measured and known twilights correspond w
 
 ```{r}
 calibrationPeriod <- subset(twl, Twilight0 < as.POSIXct("2011-07-15", "GMT"))
+str(calibrationPeriod)
 ```
 
-str(calibrationPeriod)
+
 Sun-elevation / Zenith
 ---------------------
 
@@ -439,7 +440,7 @@ You can get a quick and easy sun angle with the getElevation package in GeoLight
   sunAngle
 ```
 
-Determining the sun elevation angle - here called the Zenith angle
+Determining the sun elevation angle--here called the Zenith angle--for SGAT. For an SGAT analysis it is often best to use a zenith angle from the high end of the distrubution of zenith angles derived from the calibration data. In the example below we take the 95th quantile. Note that a larger zenith angle means that the sun is lower in the sky.
 
 ```{r message = FALSE}
   
@@ -457,7 +458,6 @@ Determining the sun elevation angle - here called the Zenith angle
                           lon = CapLocs[1], 
                           lat = CapLocs[2], 
                           rise = calibrationPeriod[,2],
-                          # Here we use the median zenith angle
                           zenith = quantile(zenithAngle,probs=0.95))
   
   # Determine the difference in minutes from when the sun rose and the geolocator said it rose 
@@ -499,11 +499,7 @@ Zenith <- quantile(zenithAngle, probs = 0.95)
 
 Inital Path
 -----------
-Now that we have the error distribution around known sunrise and sunset times and the zenith angle we can look at the location data. First, we will subset the data to only show transitions that 1) were after the first calibrartion date (presumably the deployment date) and 2) were not deleted above   
-
-We didn’t add or delete any transitions but this statement would remove the twilights that were deleted above had edits been made.
-
-Here we generate the first general path taken by each individual.
+Now that we have the error distribution around known sunrise and sunset times as well as the zenith angle, we can look at the location data. As a reminder, we are looking here at a subset o the data which includes twilights that 1) occurred after the first calibrartion date (presumably the deployment date) and 2) were not deleted according to the output of twilightEdit().  
 
 **Important** - the tol setting in the `thresholdPath` model sets the tolerance around equinox (i.e. filter out those points). Latitudinal estimates are unrelibale around the equinox periods because the change in day length is similar everywhere. `tol` values = 0 indicates save all points - larger tol values (0.2) filter out quite a few points. For this example, I set the tolerance to 0 (not the default) so I can look at all the data - even around equinox periods.
 
@@ -515,6 +511,14 @@ InitialPath <- thresholdPath(twilight = twl$Twilight,
                              rise = twl$Rise,
                              zenith = Zenith,
                              tol = 0)
+```
+
+Geolight has a simple plot making function called tripMap()
+
+```{r}
+ip <- coord(tFirst = twl$Twilight[1:nrow(twl)])
+
+tripMap <- (crds = InitialPath$x, equinox = TRUE, xlim = c(-90,-70), ylim = c(10,50), legend = TRUE)
 ```
 
 Here is the code to make a figure to show the inital path. 
