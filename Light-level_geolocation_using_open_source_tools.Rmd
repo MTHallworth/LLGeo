@@ -113,7 +113,7 @@ If you have a `.lux` file from Migrate Technology then you would use the `readMT
 
 ```{r}
 #read the data into a dataframe called d.lux
-d.lux<-readMTlux("data/Godwit.lux")     
+d.lux <- readMTlux("data/Godwit.lux")     
 ```
 ```{r echo=FALSE}
 head(d.lux)
@@ -442,7 +442,7 @@ You can get a quick and easy sun angle with the getElevation package in GeoLight
   sunAngle
 ```
 
-Determining the sun elevation angle--here called the Zenith angle--for SGAT. A Zenith angle is the angle of the sun with respect to a verticle line. If the sun is directly overhea, the angle is zero. If the sun is on the horizon, the angle is about 90 degrees. For an SGAT analysis it is often best to use a zenith angle from the high end of the distrubution of zenith angles derived from the calibration data. In the example below we take the 95th quantile. Remember that a larger zenith angle means that the sun is lower in the sky.
+Determining the sun elevation angle--here called the Zenith angle--for SGAT. A Zenith angle is the angle of the sun with respect to a verticle line. If the sun is directly overhead, the angle is zero. If the sun is on the horizon, the angle is about 90 degrees. For an SGAT analysis it is often best to use a zenith angle from the high end of the distrubution of zenith angles derived from the calibration data. In the example below we take the 95th quantile. Remember that a larger zenith angle means that the sun is lower in the sky.
 
 ```{r message = FALSE}
   
@@ -505,15 +505,20 @@ Now that we have the error distribution around known sunrise and sunset times as
 
 **Important** - the tol setting in the `thresholdPath` model sets the tolerance around equinox (i.e. filter out those points). Latitudinal estimates are unrelibale around the equinox periods because the change in day length is similar everywhere. `tol` values = 0 indicates save all points - larger tol values (0.2) filter out quite a few points. For this example, I set the tolerance to 0 (not the default) so I can look at all the data - even around equinox periods.
 
-Geolight has simple functions for generating coordinates from twlight data [coord()] and for plotting location data [tripMap()]. But first you have to get the data into the tFirst-tSecond format.
+Geolight has simple functions for generating coordinates from twlight data (`coord()`) and for plotting location data (`tripMap()`). But first you have to get the data into the tFirst-tSecond format.
 
 ```{r, message = FALSE, error = FALSE}
+library(GeoLight)
+
 ##change data format
   twlgl <- data.frame(tFirst = twl$Twilight[1:(nrow(twl)-1)],
                      tSecond =  twl$Twilight[2:nrow( twl)],
                      type = abs( twl$Rise[1:(nrow(twl)-1)]-2))
+
 ##generate coordinates
+
 InitialPath <- coord(twl = twlgl, degElevation = sunAngle)
+
 ##plot the data on a map
 tripMap(crds = InitialPath, equinox = TRUE, xlim = c(-90,-70), ylim = c(10,50), legend = TRUE)
 ```
@@ -529,8 +534,13 @@ InitialPath <- thresholdPath(twilight = twl$Twilight,
 ```
 
 You can use tripmap to show the path, as we did above... 
+
 ```{r eval = FALSE}
-tripMap(crds = InitialPath$x, equinox = TRUE, xlim = c(-90,-70), ylim = c(10,50), legend = TRUE)
+tripMap(crds = InitialPath$x,
+        equinox = TRUE, 
+        xlim = c(-90,-70),
+        ylim = c(10,50), 
+        legend = TRUE)
 ```
 
 ...or here is some alternative code for making figures to show the inital path. 
@@ -634,9 +644,12 @@ fixedx[c(1:10,(nrow(x0)-3):nrow(x0))] <- TRUE
 
 Now let's generate some parameters for a basic movement model. We need to provide a mean and standard deviation for a gamma distribution of flight speeds that get applied to each day of the analysis period. We typically want short (near zero) distance flights to be common and long distance flights to be relatively rare. So both mean and distribution should be small.
 
-```{r echo=FALSE}  
+```{r}  
   # Flight model
 beta <- c(0.7, 0.08) #mean and sd 
+```
+
+```{r echo = FALSE}
 ## plot the gamma distribution with the establishe parameters
 plot(0:80, dgamma(0:80, beta[1], beta[2]), type = "l", col="red",
      xlab = "Speed (km/h)", ylab = "Probability")
@@ -679,8 +692,8 @@ distribution.mask <- function(xlim, ylim, n = 4, land = TRUE, shape) {
 Set the x and y limits for the raster surface. It's important that you set these limits to include all longitude and latitude values where the individual may occur throughout the year. If your xlim and ylim don't include all areas you won't get results for that portion of the range.
 
 ```{r}
-xlim=c(-120,-60) 
-ylim=c(0,70)
+xlim <- c(-120,-60) 
+ylim <- c(0,70)
 ```
 
 Here we define the distribution mask to only include stationary locations that occur on land. This makes sense for something like a Tree Swallow but may not for other species - **always** consider the ecology of the species while conducting the analysis. 
@@ -761,21 +774,33 @@ We then fit the model using the `estelleMetropolis` sampler. Here you can set th
                            proposal.z = proposal.z,
                            iters = 1000, # This value sets the number of iterations to run
                            thin = 10,
-                           chains = 1)
+                           chains = 3)
 
 ### Fine Tuning 
 
 proposal.x <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(chainLast(fit$x)))
 proposal.z <- mvnorm(S=diag(c(0.0025,0.0025)),n=nlocation(chainLast(fit$z)))
 
+# Summarize the results of the previous chains to initialize the next model. 
+# This makes full use of all the data
+
+xsum <- locationSummary(fit$x,
+                        time = fit$model$time,
+                        collapse = TRUE) 
+
+zsum <- locationSummary(fit$z,
+                        time = fit$model$time,
+                        collapse = TRUE)
+
 fit <- estelleMetropolis(model = model,
                               proposal.x = proposal.x,
                               proposal.z = proposal.z,
-                              x0 = chainLast(fit$x),
-                              z0 = chainLast(fit$z),
-                              iters=1000, # This value sets the number of iterations to run
-                              thin=10,
-                              chains=1)
+                              # initialize the model using the median path from pervious runs
+                              x0 = cbind(xsum$'Lon.50%',xsum$'Lat.50%'), 
+                              z0 = cbind(zsum$'Lon.50%',zsum$'Lat.50%'),
+                              iters = 1000, # This value sets the number of iterations to run
+                              thin = 10,
+                              chains = 3)
 
 # Final Run
 
@@ -783,14 +808,23 @@ proposal.x <- mvnorm(chainCov(fit$x),s=0.1)
 proposal.z <- mvnorm(chainCov(fit$z),s=0.1)
 
 # Note the increase in number of interations - this takes a bit longer to run
-fit  <- estelleMetropolis(model = model,
+xsum <- locationSummary(fit$x,
+                        time = fit$model$time,
+                        collapse = TRUE) 
+
+zsum <- locationSummary(fit$z,
+                        time = fit$model$time,
+                        collapse = TRUE)
+
+fit <- estelleMetropolis(model = model,
                               proposal.x = proposal.x,
                               proposal.z = proposal.z,
-                              x0=chainLast(fit$x),
-                              z0=chainLast(fit$z),
-                              iters=5000,  # This value sets the number of iterations to run
-                              thin=10,
-                              chains=3)
+                              # initialize the model using the median path from pervious runs
+                              x0 = cbind(xsum$'Lon.50%',xsum$'Lat.50%'),
+                              z0 = cbind(zsum$'Lon.50%',zsum$'Lat.50%'),
+                              iters = 5000, # This value sets the number of iterations to run
+                              thin = 10,
+                              chains = 3)
 ```
 
 ## Inital results 
@@ -842,6 +876,11 @@ We can then use the `sliceInterval` function to extract and summarize the locati
   nonbreed <- slice(S, k=c(Jan01:Mar01))
 ```
 
+```{r echo = FALSE}
+  zummary <- locationSummary(fit$z,
+                             time=fit$model$time,
+                             collapse=TRUE) 
+```
 We can plot the results on the same map using the following code 
 ```{r collapse=TRUE}
   plot(wrld_simpl, 
@@ -865,18 +904,17 @@ We can plot the results on the same map using the following code
        legend=FALSE,
        col=c(rep("transparent",5),rev(bpy.colors(50))),
        cex.axis=0.7)
-  
   plot(wrld_simpl,border="gray",add=TRUE)
-  scalebar(d = 500, xy=c(-96,25),divs=2,lonlat=T,label = c(0,250,500),below="km",type="bar",cex=0.5)
+  raster::scalebar(d = 500, xy = c(-96,25),divs=2,lonlat=T,label = c(0,250,500),below="km",type="bar",cex=0.5)
   box()
 ```
 
 Getting the summary statistics is fairly easy. Here we collapse all chains using the `locationSummary` function. 
 
-```{r echo=FALSE, out.width=100}
-  zummary<- locationSummary(fit$z,
+```{r, out.width=100}
+  zummary <- locationSummary(fit$z,
                              time=fit$model$time,
-                             collapse=T) 
+                             collapse=TRUE) 
   
   head(zummary)
 ```
